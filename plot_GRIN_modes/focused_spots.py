@@ -396,11 +396,11 @@ horizontal = (
     & (Y >= -0.50 * R) & (Y <= -0.20 * R)
 )
 
-field = (vertical | horizontal).astype(float)
+field_L = (vertical | horizontal).astype(float)
 
 fig, ax = plt.subplots()
 ax.imshow(
-    field,
+    field_L,
     extent=(x[0], x[-1], x[0], x[-1]),
     cmap="gray",
     vmin=0,
@@ -414,20 +414,93 @@ plt.show()
 L_rep = 2*np.pi*b-np.pi*R*NA/(2*k*n0)
 print(L_rep)
 zf = np.pi*b/2
-z= 5*L_rep#20*zf
+z= 1*L_rep#20*zf
 
-image = SelfImaging(field,k,n0,b,x,R)
-wave = image.calculate_field(z)
+fiber_L = SelfImaging(field_L, k, n0, b, x, R)
+wave = fiber_L.calculate_field(z)
 
 plot = hue.Hue(wave,R)
 plot.plot_hue_amplitude()
 
 plt.figure(figsize=(7, 6))
-plt.imshow(np.abs(wave)**2, extent=(-40, 40, -40, 40), cmap="viridis")
+plt.imshow(np.abs(wave)**2, extent=(-30, 30, -30, 30), cmap="viridis")
 plt.gca().add_patch(    
     plt.Circle((0, 0), R, color="red", fill=False, linewidth=2)
 )
 plt.xlabel("x (um)")
 plt.ylabel("y (um)")
-plt.title(f"Plane wave in fiber at z={image.z:.1f} um")
+plt.title(f"Plane wave in fiber at z={fiber_L.z:.1f} um")
+plt.show()
+
+#%%
+
+# Polohy podél vlákna, rovněž v mikrometrech.
+n_frames = 30
+
+z_values = L_rep * np.arange(n_frames)  # 0, L_rep, ..., 5*L_rep
+# 1. Předem vypočítáme intenzitu pro všechny polohy z.
+intensities = []
+
+for z_frame in tqdm.tqdm(z_values):
+    wave_at_z = fiber_L.calculate_field(z_frame)
+    intensity = np.abs(wave_at_z)**2
+    intensities.append(intensity)
+
+intensities = np.asarray(intensities)
+
+# 2. Jedna společná normalizace pro celou animaci.
+global_max = 1
+
+if global_max == 0:
+    raise ValueError("Intenzita je ve všech snímcích nulová.")
+
+relative_intensities = intensities / global_max
+
+# 3. Připravíme obrázek a barevnou škálu.
+fig, ax = plt.subplots(figsize=(7, 6))
+
+image = ax.imshow(
+    relative_intensities[0],
+    extent=(x[0], x[-1], x[0], x[-1]),
+    origin="lower",
+    cmap="viridis",
+    vmin=0,
+    vmax=1,
+    interpolation="nearest",
+)
+
+# Červená kružnice vyznačuje poloměr jádra.
+core_boundary = plt.Circle(
+    (0, 0), R,
+    color="red",
+    fill=False,
+    linewidth=2,
+    label=f"Poloměr jádra R = {R} um",
+)
+ax.add_patch(core_boundary)
+
+ax.set_xlabel("x (um)")
+ax.set_ylabel("y (um)")
+ax.set_aspect("equal")
+ax.legend(loc="upper right")
+
+title = ax.set_title(f"Relativní intenzita, z = {z_values[0]:.1f} um")
+colorbar = fig.colorbar(image, ax=ax)
+colorbar.set_label("Relativní intenzita")
+
+# 4. Při každém snímku změníme pouze data obrázku a titulek.
+def update(frame):
+    image.set_data(relative_intensities[frame])
+    title.set_text(f"Relativní intenzita, z = {z_values[frame]:.1f} um")
+    return image, title
+
+animation = FuncAnimation(
+    fig,
+    update,
+    frames=len(z_values),
+    interval=80,       # prodleva mezi snímky v ms
+    blit=False,
+    repeat=True,
+)
+animation.save(f"image_evolution01.gif", writer="pillow", fps=12)
 plt.show()
