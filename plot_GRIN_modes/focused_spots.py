@@ -5,169 +5,9 @@ from matplotlib.colors import hsv_to_rgb
 import scipy as sp
 from scipy.special import factorial
 import tqdm
-
-def beta_LG(l : int, p : int, alpha : float, k : float, n0 : float):
-    return np.sqrt(k**2 * n0**2 - 2 * alpha*(2*p + abs(l) + 1))
-
-def C_lp(l : int, p : int, alpha : float):
-    return np.sqrt(alpha * factorial(p) / (np.pi * factorial( p + abs(l))))
-
-def F_pl(p : int, l : int, alpha : float, r : np.ndarray) -> np.ndarray:
-    u_lp = (alpha * r**2)**(abs(l)/2)*\
-            np.exp(-alpha * r**2 / 2)*\
-            sp.special.eval_genlaguerre(p, abs(l), alpha * r**2)
-    
-    return C_lp(l, p, alpha) * u_lp
-        
-
-
-def c_p0(p : int, r : np.ndarray, alpha : float) -> float:
-    integrand = F_pl(p, 0, alpha, r) * r
-    return  2 * np.pi * sp.integrate.trapezoid(integrand, x=r)
-
-def psi_z(A : np.ndarray, l : int, k : float, n0 : float, b : float, x: np.ndarray, R : float, z: float) -> np.ndarray:
-    X,Y = np.meshgrid(x, x)
-    r = np.sqrt(X**2 + Y**2)
-
-    r_cp = np.linspace(0, R, 4001)
-    alpha = k * n0/b
-    p_max = int(np.floor(alpha*R**2/2-1)/2)
-    print(f"Maximum p for guided modes: {p_max}")
-
-
-    field = np.zeros(r.shape, dtype=complex)
-    for p in range(p_max+1):
-        field += c_p0(p, r_cp, alpha)  * F_pl(p, l, alpha, r) * np.exp(1j * beta_LG(l, p, alpha, k, n0) * z)
-
-    return A * field
-#%%
-x = np.linspace(-10, 10, 1000) #um
-
-
-NA = 0.4
-b = 80 #um
-R = 6 #um; core-boundary guide for the plots, independent of b
-
-n0 = NA*b/R
-lam = 0.532 #um
-k = 2*np.pi/lam
-zf = np.pi*b/2
-
-X, Y = np.meshgrid(x, x)
-A = 1
-
-z = zf+10
-
-
-field1= psi_z(A, 0, k, n0, b, x, R, z)
-field2 = psi_z(A, 0, k, n0, b, x, R, z+10)
-plt.imshow(np.abs(field1)**2, extent=(-10, 10, -10, 10), cmap="viridis")
-plt.gca().add_patch(
-    plt.Circle((0, 0), R, color="red", fill=False, linewidth=2)
-)
-plt.xlabel("x (um)")
-plt.ylabel("y (um)")
-plt.title(f"Plane wave in fiber at z={zf}")
-plt.show()
-
-common_max = max(np.max(np.abs(field1)**2), np.max(np.abs(field2)**2))
-
-plt.figure(figsize=(16,8))
-plt.subplot(1,2,1)
-plt.imshow(np.abs(field1)**2, extent=(-10, 10, -10, 10),cmap = "viridis", vmin=0, vmax=common_max)
-plt.gca().add_patch(
-    plt.Circle((0, 0), R, color="red", fill=False, linewidth=2)
-)
-plt.xlabel("x (um)")
-plt.ylabel("y (um)")
-plt.title(f"Plane wave in fiber at z={z}")
-plt.subplot(1,2,2)
-plt.imshow(np.abs(field2)**2, extent=(-10, 10, -10, 10),cmap = "viridis", vmin=0, vmax=common_max)
-plt.gca().add_patch(
-    plt.Circle((0, 0), R, color="red", fill=False, linewidth=2)
-)
-plt.xlabel("x (um)")
-plt.ylabel("y (um)")
-plt.title(f"Plane wave in fiber at z={z+10}")
-plt.show()
-
-#%%
 from matplotlib.animation import FuncAnimation
+import hue
 
-# Průřez: x a y jsou v mikrometrech.
-# Menší počet bodů než původních 1000 urychlí výpočet.
-x = np.linspace(-10, 10, 500)  # um
-X, Y = np.meshgrid(x, x)
-
-# Polohy podél vlákna, rovněž v mikrometrech.
-z_values = np.linspace(0, 4*zf, 400)  # um
-
-# 1. Předem vypočítáme intenzitu pro všechny polohy z.
-intensities = []
-
-for z in z_values:
-    field = psi_z(A, 0, k, n0, b, x, R, z)
-    intensity = np.abs(field)**2
-    intensities.append(intensity)
-
-intensities = np.asarray(intensities)
-
-# 2. Jedna společná normalizace pro celou animaci.
-global_max = np.max(intensities)
-
-if global_max == 0:
-    raise ValueError("Intenzita je ve všech snímcích nulová.")
-
-relative_intensities = intensities / global_max
-
-# 3. Připravíme obrázek a barevnou škálu.
-fig, ax = plt.subplots(figsize=(7, 6))
-
-image = ax.imshow(
-    relative_intensities[0],
-    extent=(x[0], x[-1], x[0], x[-1]),
-    origin="lower",
-    cmap="viridis",
-    vmin=0,
-    vmax=1,
-    interpolation="nearest",
-)
-
-# Červená kružnice vyznačuje poloměr jádra.
-core_boundary = plt.Circle(
-    (0, 0), R,
-    color="red",
-    fill=False,
-    linewidth=2,
-    label=f"Poloměr jádra R = {R} um",
-)
-ax.add_patch(core_boundary)
-
-ax.set_xlabel("x (um)")
-ax.set_ylabel("y (um)")
-ax.set_aspect("equal")
-ax.legend(loc="upper right")
-
-title = ax.set_title(f"Relativní intenzita, z = {z_values[0]:.1f} um")
-colorbar = fig.colorbar(image, ax=ax)
-colorbar.set_label("Relativní intenzita")
-
-# 4. Při každém snímku změníme pouze data obrázku a titulek.
-def update(frame):
-    image.set_data(relative_intensities[frame])
-    title.set_text(f"Relativní intenzita, z = {z_values[frame]:.1f} um")
-    return image, title
-
-animation = FuncAnimation(
-    fig,
-    update,
-    frames=len(z_values),
-    interval=80,       # prodleva mezi snímky v ms
-    blit=False,
-    repeat=True,
-)
-# animation.save("intensity_animation.gif", writer="pillow", fps=12)
-plt.show()
 
 #%% ############## dopad rovinne vlny pod obecnym uhlem ##############
 
@@ -196,8 +36,10 @@ class Planewave:
         self.ky = self.k * np.sin(self.theta) * np.sin(self.phi_k)
         self.k_perp = np.hypot(self.kx, self.ky)
         self.modes = self.allowed_modes()
+        self._precalculate_beta_LG()
         self._precalculate_c_pl()
         self._precalculate_fields()
+        
 
     def beta_LG(self, p : int, l : int):
         return np.sqrt(self.k**2 * self.n0**2 - 2 * self.alpha*(2*p + abs(l) + 1))
@@ -219,9 +61,7 @@ class Planewave:
     def allowed_modes(self):
         N_limit = self.alpha * self.R**2 / 2 - 1
         N_max = int(np.ceil(N_limit)) - 1
-
         modes = []
-
         for l in range(-N_max, N_max + 1):
             p_max = (N_max - abs(l)) // 2
 
@@ -229,30 +69,33 @@ class Planewave:
                 modes.append((p, l))
         self.modes = modes
         return modes
+    
+    def _precalculate_beta_LG(self):
+        self.beta_LG_values = np.zeros((len(self.modes)), dtype=float)
+        for i, (p, l) in enumerate(self.modes):
+            self.beta_LG_values[i] = self.beta_LG(p, l)
+        print("Finished calculating Betas")
+
     def _precalculate_c_pl(self):
-        r_cpl = np.linspace(0, self.R, 4001)
-        self.c_pl_values = {}
-        for p, l in self.modes:
-            self.c_pl_values[(p, l)] = self.c_pl(p, l, r_cpl)
+        r_cpl = np.linspace(0, self.R*1.1, 4001)
+        self.c_pl_values = np.zeros((len(self.modes)), dtype=complex)
+        for i, (p, l) in enumerate(self.modes):
+            self.c_pl_values[i] = self.c_pl(p, l, r_cpl)
+        print("Finished calculating coefficients")
+
     def _precalculate_fields(self):
         X, Y = np.meshgrid(self.x, self.x)
         r = np.sqrt(X**2 + Y**2)
         phi = np.arctan2(Y, X)
 
-        self.fields = {}
-        for p, l in self.modes:
-            field = self.F_pl(p, l, r) * np.exp(1j * l * phi)
-            self.fields[(p, l)] = field
+        self.fields = np.empty((len(self.x), len(self.x), len(self.modes)), dtype=complex)
+        for mode_idx, (p, l) in enumerate(self.modes):
+            self.fields[..., mode_idx] = self.F_pl(p, l, r) * np.exp(1j * l * phi)
+        print("Finished calculating fields")
     def calculate_field(self) -> np.ndarray:
-
-        field = np.zeros((len(self.x), len(self.x)), dtype=complex)
-        for p, l in self.modes:
-            field += self.c_pl_values[(p, l)] *\
-                self.fields[(p, l)] *\
-                np.exp(1j * self.beta_LG(p, l) * self.z)
-
-        return field
-
+        weights = self.c_pl_values * np.exp(1j * self.beta_LG_values * self.z)
+        output_field = np.einsum('ijk,k->ij', self.fields, weights)
+        return output_field
 
 # %%
 x = np.linspace(-10, 10, 1000) #um
@@ -268,28 +111,32 @@ k = 2*np.pi/lam
 
 # plane wave:
 A = 1
-theta = np.deg2rad(5)
-phi_k = np.deg2rad(180)
+theta = np.deg2rad(10)
+phi_k = np.deg2rad(0)
 # distance along the fiber axis where we want to evaluate the field
 zf = np.pi*b/2
 L_rep = 2*np.pi*b-np.pi*R*NA/(2*k*n0)
+z=3*L_rep+zf
+z=0
 
-wave = Planewave(A, k, n0, b, x, R, theta, phi_k, 1*L_rep+zf)
+wave = Planewave(A, k, n0, b, x, R, theta, phi_k, z)
 field = wave.calculate_field()
 
+plot = hue.Hue(field, R)
+plot.plot_hue_amplitude(extent=(-10, 10, -10, 10), cmap="hsv")
+
+plt.figure(figsize=(7, 6))
 plt.imshow(np.abs(field)**2, extent=(-10, 10, -10, 10), cmap="viridis")
 plt.gca().add_patch(
     plt.Circle((0, 0), R, color="red", fill=False, linewidth=2)
 )
 plt.xlabel("x (um)")
 plt.ylabel("y (um)")
-plt.title(f"Plane wave in fiber at z={L_rep:.1f} um, theta={np.rad2deg(theta):.1f} deg, phi_k={np.rad2deg(phi_k):.1f} deg")
+plt.title(f"Plane wave in fiber at z={wave.z:.1f} um, theta={np.rad2deg(theta):.1f} deg, phi_k={np.rad2deg(phi_k):.1f} deg")
 plt.show()
 
 #%%
-from matplotlib.animation import FuncAnimation
-# Průřez: x a y jsou v mikrometrech.
-# Menší počet bodů než původních 1000 urychlí výpočet.
+
 x = np.linspace(-10, 10, 1000)  # um
 X, Y = np.meshgrid(x, x)
 theta = np.deg2rad(60)
@@ -364,5 +211,223 @@ animation = FuncAnimation(
     blit=False,
     repeat=True,
 )
-animation.save(f"intensity_{np.round(np.rad2deg(theta))}_{np.round(np.rad2deg(phi_k))}.gif", writer="pillow", fps=12)
+# animation.save(f"intensity_{np.round(np.rad2deg(theta))}_{np.round(np.rad2deg(phi_k))}.gif", writer="pillow", fps=12)
+plt.show()
+#%%
+class SelfImaging:
+    def __init__(self, field, k, n0, b, x, R):
+        self.input_field = np.asarray(field)
+        self.k = k
+        self.n0 = n0
+        self.b = b
+        x = np.asarray(x)
+        if x.ndim != 1 or x.size < 2:
+            raise ValueError("x must be a one-dimensional coordinate axis with at least two points.")
+        self.X, self.Y = np.meshgrid(x, x)
+        self.x = self.X
+        if self.x.shape != self.input_field.shape:
+            raise ValueError(
+                f"Input field shape {self.input_field.shape} must match "
+                f"the coordinate grid shape {self.x.shape}."
+            )
+        self.r = np.sqrt(self.X**2 + self.Y**2)
+        self.phi = np.arctan2(self.Y, self.X)
+        self.R = R
+        self.alpha = k * n0/b
+        self.modes = self.allowed_modes()
+        self._precalculate_beta_LG()
+        self._precalculate_LG_modes()
+        self._precalculate_c_pl()
+
+    def allowed_modes(self):
+        N_limit = self.alpha * self.R**2 / 2 - 1
+        N_max = int(np.ceil(N_limit)) - 1
+        modes = []
+        for l in range(-N_max, N_max + 1):
+            p_max = (N_max - abs(l)) // 2
+
+            for p in range(p_max + 1):
+                modes.append((p, l))
+        return modes
+    
+    def beta_LG(self, p : int, l : int):
+        return np.sqrt(self.k**2 * self.n0**2 - 2 * self.alpha*(2*p + abs(l) + 1))
+    
+    def K_pl(self, l : int, p : int, alpha : float):
+        return np.sqrt(alpha * factorial(p) / (np.pi * factorial( p + abs(l))))
+
+    def LG_mode(self,p : int, l : int) -> np.ndarray:
+        N = 2*p + abs(l)
+        if N>=self.alpha*self.R**2/2-1:
+            raise ValueError(f"Mode (l={l}, p={p}) is not guided for the given parameters.",
+                            f"{self.alpha=:.3f}, {self.R=:.3f}, {N=}")
+        
+        C = self.K_pl(l, p, self.alpha)
+
+        psi_LG = C*(self.alpha * self.r**2)**(abs(l)/2)*\
+        np.exp(-self.alpha * self.r**2 / 2)*\
+        sp.special.eval_genlaguerre(p, abs(l), self.alpha * self.r**2)*\
+        np.exp(1j * l * self.phi)
+        return psi_LG
+
+    def _precalculate_beta_LG(self):
+        self.beta_LG_values = np.zeros((len(self.modes)), dtype=float)
+        for i, (p, l) in enumerate(self.modes):
+            self.beta_LG_values[i] = self.beta_LG(p, l)
+        print("Finished calculating Betas")
+
+
+    def _precalculate_LG_modes(self):
+        self.LG_modes = np.empty((*self.x.shape, len(self.modes)), dtype=complex)
+        for mode_idx, (p, l) in enumerate(self.modes):
+            self.LG_modes[..., mode_idx] = self.LG_mode(p, l)
+        print("Finished calculating LG modes")
+
+    def _precalculate_c_pl(self):
+        self.c_pl_values = np.zeros((len(self.modes)), dtype=complex)
+        dx = self.x[0, 1] - self.x[0, 0]
+        for i in range(len(self.modes)):
+            self.c_pl_values[i] = np.sum(
+                np.conj(self.LG_modes[..., i]) * self.input_field
+            ) * dx**2
+        print("Finished calculating coefficients")
+        
+
+    def calculate_field(self, z : float) -> np.ndarray:
+        self.z = z
+        weights = self.c_pl_values * np.exp(1j * self.beta_LG_values * z)
+        output_field = np.einsum('ijk,k->ij', self.LG_modes, weights)
+        return output_field
+
+# %%
+x = np.linspace(-10, 10, 1000) #um
+X,Y = np.meshgrid(x,x)
+# fiber
+NA = 0.4
+b = 80 #um
+R = 6 #um; core-boundary guide for the plots, independent of b
+n0 = NA*b/R
+lam = 0.532 #um
+k = 2*np.pi/lam
+
+# plane wave:
+theta = np.deg2rad(10)
+phi_k = np.deg2rad(0)
+kx = k*np.sin(theta)*np.cos(phi_k)
+ky = k*np.sin(theta)*np.sin(phi_k)
+
+field = np.exp(1j* (kx*X+ky*Y))
+
+# distance along the fiber axis where we want to evaluate the field
+zf = np.pi*b/2
+L_rep = 2*np.pi*b-np.pi*R*NA/(2*k*n0)
+z=3*L_rep+zf
+z=0
+image = SelfImaging(field,k,n0,b,x,R)
+wave = image.calculate_field(z)
+
+plot = hue.Hue(wave,R)
+plot.plot_hue_amplitude()
+
+plt.figure(figsize=(7, 6))
+plt.imshow(np.abs(wave)**2, extent=(-10, 10, -10, 10), cmap="viridis")
+plt.gca().add_patch(
+    plt.Circle((0, 0), R, color="red", fill=False, linewidth=2)
+)
+plt.xlabel("x (um)")
+plt.ylabel("y (um)")
+plt.title(f"Plane wave in fiber at z={image.z:.1f} um, theta={np.rad2deg(theta):.1f} deg, phi_k={np.rad2deg(phi_k):.1f} deg")
+plt.show()
+
+# %%
+# kruh:
+r= np.sqrt((X-2/3*R)**2+(Y-0)**2)
+field = np.where(r<2,1,0)
+z=101*zf
+plt.imshow(field,extent=(-10, 10, -10, 10),cmap="gray")
+plt.gca().add_patch(
+    plt.Circle((0, 0), R, color="red", fill=False, linewidth=2)
+)
+plt.show()
+
+image = SelfImaging(field,k,n0,b,x,R)
+wave = image.calculate_field(z)
+
+plot = hue.Hue(wave,R)
+plot.plot_hue_amplitude()
+
+plt.figure(figsize=(7, 6))
+plt.imshow(np.abs(wave)**2, extent=(-10, 10, -10, 10), cmap="viridis")
+plt.gca().add_patch(
+    plt.Circle((0, 0), R, color="red", fill=False, linewidth=2)
+)
+plt.xlabel("x (um)")
+plt.ylabel("y (um)")
+plt.title(f"Plane wave in fiber at z={image.z:.1f} um, theta={np.rad2deg(theta):.1f} deg, phi_k={np.rad2deg(phi_k):.1f} deg")
+plt.show()
+
+# %%
+def parabolic_profile(r : np.ndarray, b : float,
+                      n0 : float) -> np.ndarray:
+    return n0**2*(1 - r**2/b**2)
+#fiber
+NA = 0.3
+R = 25 #um
+b = 100 #um
+n0 = NA*b/R
+lam = 0.532 #um
+k = 2*np.pi/lam
+
+x = np.linspace(-30,30,200)
+profile = parabolic_profile(x[len(x)//2:],b,n0)
+plt.plot(x[len(x)//2:],profile)
+plt.show()
+
+# random maska:
+X, Y = np.meshgrid(x, x)
+
+vertical = (
+    (X >= -0.55 * R) & (X <= -0.25 * R)
+    & (Y >= -0.50 * R) & (Y <= 0.55 * R)
+)
+
+horizontal = (
+    (X >= -0.55 * R) & (X <= 0.50 * R)
+    & (Y >= -0.50 * R) & (Y <= -0.20 * R)
+)
+
+field = (vertical | horizontal).astype(float)
+
+fig, ax = plt.subplots()
+ax.imshow(
+    field,
+    extent=(x[0], x[-1], x[0], x[-1]),
+    cmap="gray",
+    vmin=0,
+    vmax=1,
+    interpolation="nearest",
+)
+ax.add_patch(plt.Circle((0, 0), R, fill=False, color="red"))
+ax.set(xlabel="x (µm)", ylabel="y (µm)", title="Vstupní binární maska")
+plt.show()
+
+L_rep = 2*np.pi*b-np.pi*R*NA/(2*k*n0)
+print(L_rep)
+zf = np.pi*b/2
+z= 5*L_rep#20*zf
+
+image = SelfImaging(field,k,n0,b,x,R)
+wave = image.calculate_field(z)
+
+plot = hue.Hue(wave,R)
+plot.plot_hue_amplitude()
+
+plt.figure(figsize=(7, 6))
+plt.imshow(np.abs(wave)**2, extent=(-40, 40, -40, 40), cmap="viridis")
+plt.gca().add_patch(    
+    plt.Circle((0, 0), R, color="red", fill=False, linewidth=2)
+)
+plt.xlabel("x (um)")
+plt.ylabel("y (um)")
+plt.title(f"Plane wave in fiber at z={image.z:.1f} um")
 plt.show()
