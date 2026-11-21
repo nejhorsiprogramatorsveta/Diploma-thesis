@@ -1,3 +1,4 @@
 /.venv_mgr/
 *.gif
 *.png
+.DS_Store
